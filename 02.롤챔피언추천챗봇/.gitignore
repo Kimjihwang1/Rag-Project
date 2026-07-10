@@ -1,0 +1,20 @@
+# 가상환경
+venv/
+.venv/
+
+# 환경변수 (API 키 등 민감 정보!)
+.env
+
+# 파이썬 캐시
+__pycache__/
+*.pyc
+
+# 벡터DB (용량 크고, 각자 embedding.py 돌려서 재생성 가능)
+chroma_db/
+
+# VS Code 설정 (선택)
+.vscode/
+
+# OS 관련 파일
+.DS_Store
+Thumbs.db
