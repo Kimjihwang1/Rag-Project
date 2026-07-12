@@ -20,12 +20,20 @@ question = st.chat_input("질문을 입력하세요. (예: 정글 처음 하는�
 
 if question:
     st.session_state.messages.append({"role": "user", "content": question})
+
     with st.chat_message("user"):
         st.markdown(question)
 
+    # 이전 대화 생성
+    history = ""
+    for msg in st.session_state.messages[:-1]:   # 방금 질문 제외
+        role = "사용자" if msg["role"] == "user" else "AI"
+        history += f"{role}: {msg['content']}\n"
+
     with st.chat_message("assistant"):
         with st.spinner("생각하는 중..."):
-            answer = ask(question)
+            answer = ask(question, history)
+
         st.markdown(answer)
 
     st.session_state.messages.append({"role": "assistant", "content": answer})
