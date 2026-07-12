@@ -21,13 +21,24 @@ for txt_file in BASE_DIR.glob("*.txt"):
 
 print("문서 개수:", len(documents))
 
-# 2. 문서 분할
+# 디버그: 각 문서 길이 확인
+for i, d in enumerate(documents):
+    print(f"[문서 {i}] 길이: {len(d.page_content)}자 / 출처: {d.metadata.get('source')}")
+
+# 2. 문서 분할 (챔피언 단위로 우선 자르도록 구분자 지정)
 splitter = RecursiveCharacterTextSplitter(
-    chunk_size=500,
-    chunk_overlap=100
+    chunk_size=800,
+    chunk_overlap=150,
+    separators=["\n### 챔피언명:", "\n\n", "\n", " ", ""]
 )
 docs = splitter.split_documents(documents)
 print("청크 개수", len(docs))
+
+# 디버그: 앞부분 청크 5개 길이와 내용 미리보기
+for i, d in enumerate(docs[:5]):
+    print(f"\n[청크 {i}] 길이: {len(d.page_content)}자")
+    print(d.page_content[:150])
+    print("---")
 
 # 3. 임베딩
 embedding = HuggingFaceEmbeddings(model_name="BAAI/bge-m3")
