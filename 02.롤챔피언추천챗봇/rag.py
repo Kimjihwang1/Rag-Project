@@ -100,6 +100,8 @@ prompt = ChatPromptTemplate.from_template(
 8. 이전 대화에서 언급한 챔피언이나 내용을 참고하여 사용자의 질문 대상을 이해하세요.
 9. 이전 대화에서 추천했던 챔피언들 중 하나를 가리키는 질문(예: "그중에", "걔는?", "첫 번째", "둘 중에")이 들어오면 이전 대화를 참고하여 답변하세요.
 9-1. 특히 "그중에 OO한 애는 누구야?", "제일 OO한 챔피언은?"처럼 이전에 추천한 챔피언들 중 특정 조건에 맞는 "한 명 또는 소수"를 콕 집어달라는 질문이면, 이전에 언급된 챔피언 전체를 다시 나열하지 말고 반드시 조건에 가장 맞는 챔피언만 골라서 답하세요. 이 경우 규칙 10번(2~3명 추천)은 적용하지 않습니다.
+9-2. 만약 질문이 "그중에서 ~한 애는?"과 같이 특정 대상을 좁히는 질문인 경우, 반드시 바로 직전 AI의 답변에서 추천 및 나열된 목록(예: 제이스, 제라스, 럭스)으로 비교 대상을 엄격히 한정해야 합니다. 대화 이력에서 더 예전 대화(예: 맨 처음 추천한 가렌 등)에 등장한 챔피언을 끌고 와 답변하는 것은 절대 금지합니다.
+9-3. 만약 사용자가 "아 그거 말고", "그거 아니고" 등 직전 답변에 대해 거부하거나 수정/정정을 요구하면서 다른 유형을 물어본 경우, 직전 답변에 추천되었던 챔피언들(예: 케이틀린, 시비르, 미스 포츈 등)을 절대 이번 추천 목록에 다시 포함하지 마세요. 문서에 근거한 다른 적절한 대안 챔피언들을 찾아 추천해야 합니다.
 10. 추천을 요청하면 가능한 경우 2~3명의 챔피언을 추천하세요.
 11. 답변의 근거는 반드시 아래 문서입니다.
 12. 특정 챔피언 이름이 질문에 포함된 경우, 반드시 그 챔피언 자신의 "### 챔피언명:" 항목만을 근거로 답하세요. 다른 챔피언의 "상대하기 쉬운/어려운 챔피언" 필드를 가져와 그 챔피언과 연관지어 설명하지 마세요.
@@ -117,11 +119,14 @@ prompt = ChatPromptTemplate.from_template(
 rag_query_gen_prompt = ChatPromptTemplate.from_template(
 """
 아래는 챗봇과 사용자의 이전 대화입니다. 이 대화 맥락을 참고하여, 사용자의 "새 질문"에 등장하는
-대명사("그중에", "걔는", "첫 번째" 등)나 생략된 주어를 실제 챔피언 이름 등 구체적인 내용으로
+대명사("그중에", "그중", "걔는", "첫 번째" 등)나 생략된 주어를 실제 챔피언 이름 등 구체적인 내용으로
 바꾸어 벡터 검색에 적합한 완전한 문장으로 다시 써주세요.
 
-새 질문이 이미 구체적이고 명확하다면 그대로 반환하세요.
-검색어 문장 1개만 답하고, 따옴표나 부가 설명은 절대 쓰지 마세요.
+★ 주의 규칙:
+1. 질문에 "그중", "그중에" 등이 쓰인 경우, 이전 대화 전체가 아닌 '바로 직전 대화에서 AI가 나열하거나 추천한 챔피언들'만 가리키는 것입니다. 직전 답변 목록 이외의 오래된 대화에 등장했던 챔피언(예: 이전 대화에서 추천했던 다른 챔피언)을 지목하지 않도록 엄격히 주의하세요.
+2. 만약 사용자가 "아 그거 말고", "그거 아니고", "다른 것 추천해줘" 등 이전 AI가 추천한 대상을 거부하거나 정정하는 표현을 썼다면, 이전 직전 답변에 등장했던 챔피언들을 제외해달라는 의도입니다. 이 경우 검색어 문장에 이전 챔피언들을 제외하는 조건(예: "~를 제외한")을 명시적으로 포함해 검색용 질문을 만드세요.
+3. 새 질문이 이미 구체적이고 명확하다면 그대로 반환하세요.
+4. 검색어 문장 1개만 답하고, 따옴표나 부가 설명은 절대 쓰지 마세요.
 
 이전 대화
 {history}
@@ -135,6 +140,20 @@ rag_query_gen_prompt = ChatPromptTemplate.from_template(
 rag_query_gen_chain = rag_query_gen_prompt | llm | StrOutputParser()
 
 chain = prompt | llm | StrOutputParser()
+
+
+def load_all_champion_names():
+    names = []
+    try:
+        # champions.txt에서 모든 챔피언명을 파싱하여 목록화
+        with open(BASE_DIR / "champions.txt", "r", encoding="utf-8") as f:
+            for line in f:
+                if line.startswith("### 챔피언명:"):
+                    name = line.replace("### 챔피언명:", "").strip()
+                    names.append(name)
+    except Exception as e:
+        print(f"챔피언 목록 로드 오류: {e}")
+    return names
 
 
 def format_docs(docs):
@@ -163,6 +182,40 @@ def ask(question, history=""):
 
     # 재구성된 질문으로 검색
     docs = retriever.invoke(search_question)
+
+    # [코드 레벨 필터링 추가] "그거 말고", "아니고" 등 이전 추천 거부 피드백 처리
+    NEGATION_KEYWORDS = ["말고", "아니고", "그거 말고", "그거 아니고", "다른거", "다른 거", "정정"]
+    is_negation = any(kw in question for kw in NEGATION_KEYWORDS)
+    
+    if is_negation and history.strip():
+        exclude_names = []
+        history_lines = history.strip().split("\n")
+        last_ai_line = ""
+        # 직전 AI 답변 라인 찾기
+        for line in reversed(history_lines):
+            if line.startswith("AI:"):
+                last_ai_line = line
+                break
+        
+        if last_ai_line:
+            all_champs = load_all_champion_names()
+            for champ in all_champs:
+                if champ in last_ai_line:
+                    exclude_names.append(champ)
+        
+        if exclude_names:
+            print(f"=== [코드 필터] 다음 챔피언을 검색 결과에서 완전 배제합니다: {exclude_names} ===")
+            filtered_docs = []
+            for doc in docs:
+                should_exclude = False
+                for ex_name in exclude_names:
+                    # 문서 내에 해당 챔피언명이 주어로 들어가 있는지 체크
+                    if f"챔피언명: {ex_name}" in doc.page_content:
+                        should_exclude = True
+                        break
+                if not should_exclude:
+                    filtered_docs.append(doc)
+            docs = filtered_docs
 
     print("=== 검색된 문서 ===")
     for i, doc in enumerate(docs):
