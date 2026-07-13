@@ -73,10 +73,16 @@ if question:
 
         st.markdown(answer)
 
-        # 검색된 문서(근거) 펼쳐보기 - 웹 검색 답변일 땐 docs가 None이라 표시 안 함
+        # 검색된 문서(근거) 펼쳐보기
         if docs:
-            with st.expander("📄 참고한 챔피언 문서 보기"):
-                for i, doc in enumerate(docs):
-                    st.text(f"[{i}] {doc.page_content[:200]}...")
+            is_web = any(doc.metadata.get("source") == "웹 검색 결과" for doc in docs)
+            if is_web:
+                with st.expander("🌐 참고한 실시간 웹 검색 결과 보기"):
+                    for doc in docs:
+                        st.markdown(doc.page_content)
+            else:
+                with st.expander("📄 참고한 챔피언 문서 보기"):
+                    for i, doc in enumerate(docs):
+                        st.text(f"[{i}] {doc.page_content[:200]}...")
 
     st.session_state.messages.append({"role": "assistant", "content": answer})

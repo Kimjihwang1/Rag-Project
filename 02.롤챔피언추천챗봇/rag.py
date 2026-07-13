@@ -35,6 +35,19 @@ def is_realtime_question(question: str) -> bool:
     return any(kw in question for kw in REALTIME_KEYWORDS)
 
 
+# 검색어 생성기 (Query Transformation) 프롬프트 및 체인
+query_gen_prompt = ChatPromptTemplate.from_template(
+"""
+사용자의 질문을 웹 검색엔진(구글 등)에 입력하여 가장 최신의 정확한 정보를 얻기에 적합한 검색 키워드로 변환해 주세요.
+불필요한 문장 성분은 지우고 핵심 단어 위주의 검색어 1개만 완성해서 답변하세요. 따옴표나 부가 설명은 절대 쓰지 마세요.
+
+질문: {question}
+검색어:
+"""
+)
+query_gen_chain = query_gen_prompt | llm | StrOutputParser()
+
+
 web_prompt = ChatPromptTemplate.from_template(
 """
 당신은 리그 오브 레전드 초보자를 위한 챔피언 추천 및 게임 가이드 AI입니다.
@@ -56,8 +69,18 @@ web_prompt = ChatPromptTemplate.from_template(
 web_chain = web_prompt | llm | StrOutputParser()
 
 
+from langchain_core.documents import Document
+
 def web_search_answer(question: str, history: str = "") -> str:
-    search_result = duck.run(f"리그 오브 레전드 {question}")
+    # 검색용 쿼리 최적화 수행 (Query Transformation)
+    search_query = query_gen_chain.invoke({"question": question}).strip()
+    search_query = search_query.replace('"', '').replace("'", "")
+    
+    # "리그 오브 레전드" 키워드를 덧붙여 검색 정확도 확보
+    full_search_query = f"리그 오브 레전드 {search_query}"
+    
+    print(f"=== 생성된 검색 쿼리: {full_search_query} ===")
+    search_result = duck.run(full_search_query)
 
     print("=== 웹 검색 결과 ===")
     print(search_result[:300])
@@ -69,8 +92,9 @@ def web_search_answer(question: str, history: str = "") -> str:
         "question": question
     })
 
-    # 웹 검색은 참고 "문서"가 없으므로 None 리턴
-    return answer, None
+    # 웹 검색 결과를 Document 객체로 포장하여 리턴
+    web_docs = [Document(page_content=search_result, metadata={"source": "웹 검색 결과"})]
+    return answer, web_docs
 
 
 ########################################################################
