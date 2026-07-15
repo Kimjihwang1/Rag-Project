@@ -1,3 +1,4 @@
+import re
 from pathlib import Path
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_chroma import Chroma
@@ -20,7 +21,7 @@ db = Chroma(
     persist_directory=str(DB_PATH)
 )
 
-retriever = db.as_retriever(search_kwargs={"k": 100})
+retriever = db.as_retriever(search_kwargs={"k": 8})
 
 ########################################################################
 # 웹 검색 Tool (최신 정보용)
@@ -189,18 +190,13 @@ def ask(question, history=""):
     
     if is_negation and history.strip():
         exclude_names = []
-        history_lines = history.strip().split("\n")
-        last_ai_line = ""
-        # 직전 AI 답변 라인 찾기
-        for line in reversed(history_lines):
-            if line.startswith("AI:"):
-                last_ai_line = line
-                break
-        
-        if last_ai_line:
+        last_ai_index = history.rfind("AI:")
+        if last_ai_index != -1:
+            last_ai_content = history[last_ai_index:]
             all_champs = load_all_champion_names()
             for champ in all_champs:
-                if champ in last_ai_line:
+                pattern = re.compile(rf"(?<![가-힣]){re.escape(champ)}(?:은|는|이|가|을|를|과|와|의|도|만|로|으로|에|게|랑|이랑|들)?(?![가-힣])")
+                if pattern.search(last_ai_content):
                     exclude_names.append(champ)
         
         if exclude_names:
@@ -216,6 +212,43 @@ def ask(question, history=""):
                 if not should_exclude:
                     filtered_docs.append(doc)
             docs = filtered_docs
+
+    # [코드 레벨 필터링 추가] "그중", "그중에", "걔는" 등 이전 추천 목록에서 선택하는 피드백 처리
+    SELECTION_KEYWORDS = ["그중", "그중해서", "그중해서", "그중에서", "그중에", "그 중에", "그 중에서", "이중", "이중에", "이 중에서", "이중해서", "이중에서", "걔는", "걔가", "걔중", "걔중에", "걔네", "걔들", "첫 번째", "첫번째", "두 번째", "두번째", "세 번째", "세번째", "둘 중에", "둘 중", "셋 중에", "셋 중"]
+    is_selection = any(kw in question for kw in SELECTION_KEYWORDS)
+    
+    if is_selection and history.strip():
+        include_names = []
+        last_ai_index = history.rfind("AI:")
+        if last_ai_index != -1:
+            last_ai_content = history[last_ai_index:]
+            all_champs = load_all_champion_names()
+            for champ in all_champs:
+                pattern = re.compile(rf"(?<![가-힣]){re.escape(champ)}(?:은|는|이|가|을|를|과|와|의|도|만|로|으로|에|게|랑|이랑|들)?(?![가-힣])")
+                if pattern.search(last_ai_content):
+                    include_names.append(champ)
+        
+        if include_names:
+            print(f"=== [코드 필터] 다음 챔피언만 검색 결과로 제한합니다: {include_names} ===")
+            guaranteed_docs = []
+            for inc_name in include_names:
+                # 기존 docs에 이미 존재하는지 확인
+                found_doc = None
+                for doc in docs:
+                    if f"챔피언명: {inc_name}" in doc.page_content:
+                        found_doc = doc
+                        break
+                
+                if found_doc:
+                    guaranteed_docs.append(found_doc)
+                else:
+                    # 기존 docs에 없으면 직접 검색해서 추가
+                    specific_docs = retriever.invoke(f"### 챔피언명: {inc_name}")
+                    for s_doc in specific_docs:
+                        if f"챔피언명: {inc_name}" in s_doc.page_content:
+                            guaranteed_docs.append(s_doc)
+                            break
+            docs = guaranteed_docs
 
     print("=== 검색된 문서 ===")
     for i, doc in enumerate(docs):
