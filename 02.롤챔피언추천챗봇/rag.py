@@ -30,11 +30,31 @@ retriever = db.as_retriever(search_kwargs={"k": 8})
 duck = DuckDuckGoSearchRun()
 
 # 이 키워드가 질문에 포함되면 문서 검색 대신 웹 검색으로 우회
-REALTIME_KEYWORDS = ["최신", "패치", "오늘", "현재", "요즘", "밸런스 패치", "너프", "버프", "신규 챔피언", "리메이크", "리워크"]
+REALTIME_KEYWORDS = ["최신", "패치", "오늘", "현재", "요즘", "밸런스 패치", "너프", "버프", "신규 챔피언", "리메이크", "리워크", "티어", "티어표", "메타"]
 
 
 def is_realtime_question(question: str) -> bool:
     return any(kw in question for kw in REALTIME_KEYWORDS)
+
+
+# 웹 검색용 질문 재구성 프롬프트
+web_query_gen_prompt = ChatPromptTemplate.from_template(
+"""
+사용자의 질문을 웹 검색(DuckDuckGo 등)에 가장 적합하고 핵심적인 키워드 중심의 검색어(2~4단어)로 변환해 주세요.
+반드시 검색어 문장 1개만 반환하고, 따옴표나 부가 설명은 절대 쓰지 마세요.
+
+예시:
+- "요즘 1티어 정글 챔피언이 뭐야?" -> "롤 정글 티어"
+- "신규 챔피언 스몰더 출시일 언제야?" -> "롤 스몰더 출시일"
+- "이번 14.10 패치노트 내용 알려줘" -> "롤 14.10 패치노트"
+- "아칼리 버프 되었나요?" -> "롤 아칼리 버프"
+
+질문: {question}
+
+검색어:
+"""
+)
+web_query_gen_chain = web_query_gen_prompt | llm | StrOutputParser()
 
 
 web_prompt = ChatPromptTemplate.from_template(
@@ -59,7 +79,12 @@ web_chain = web_prompt | llm | StrOutputParser()
 
 
 def web_search_answer(question: str, history: str = "") -> str:
-    search_result = duck.run(f"리그 오브 레전드 {question}")
+    # 웹 검색어 최적화
+    search_query = web_query_gen_chain.invoke({"question": question}).strip()
+    search_query = search_query.strip("'\"")
+    print(f"=== 웹 검색 최적화 쿼리: '{search_query}' ===")
+
+    search_result = duck.run(search_query)
 
     print("=== 웹 검색 결과 ===")
     print(search_result[:300])
@@ -74,6 +99,7 @@ def web_search_answer(question: str, history: str = "") -> str:
     # 웹 검색은 참고 "문서"가 없으므로 Document 객체로 포장해서 리턴 (app.py의 metadata 체크와 호환)
     web_docs = [Document(page_content=search_result, metadata={"source": "웹 검색 결과"})]
     return answer, web_docs
+
 
 
 ########################################################################
